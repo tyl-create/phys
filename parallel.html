@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>點電荷電場模擬</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
+  <style>
+    /* --- 基礎設定 --- */
+    body { 
+      margin: 0; overflow: hidden; background: #000; 
+      font-family: 'Segoe UI', Arial, sans-serif; 
+      touch-action: none; 
+      user-select: none; -webkit-user-select: none;
+    }
+
+    /* --- 側邊選單 (Side Menu) --- */
+    #side-menu {
+      position: fixed;
+      top: 0; left: -260px; /* 初始隱藏在左邊 */
+      width: 260px; height: 100%;
+      background: rgba(25, 25, 25, 0.98);
+      box-shadow: 2px 0 10px rgba(0,0,0,0.5);
+      z-index: 2000; /* 最高層級 */
+      transition: left 0.3s ease; /* 滑動動畫 */
+      display: flex; flex-direction: column;
+      border-right: 1px solid #444;
+    }
+    
+    #side-menu.open { left: 0; } /* 打開時的狀態 */
+
+    .menu-header {
+      padding: 20px;
+      background: #222;
+      border-bottom: 1px solid #444;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .menu-title { color: #fff; font-weight: bold; font-size: 18px; }
+    .close-btn { color: #aaa; font-size: 24px; cursor: pointer; padding: 5px; }
+
+    .menu-items { padding: 10px 0; }
+    .menu-link {
+      display: block;
+      padding: 15px 20px;
+      color: #ddd; text-decoration: none;
+      font-size: 16px; border-bottom: 1px solid #333;
+      transition: background 0.2s;
+    }
+    .menu-link:hover, .menu-link.active {
+      background: #333; color: #fff; border-left: 4px solid #00ffff;
+    }
+
+    /* 遮罩 (點擊選單外部關閉用) */
+    #menu-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.5);
+      z-index: 1500; display: none; backdrop-filter: blur(2px);
+    }
+    #menu-overlay.open { display: block; }
+
+    /* --- 頂部按鈕列 --- */
+    #top-bar {
+      position: fixed; top: 0; left: 0; width: 100%;
+      background: rgba(20,20,20,0.85); padding: 12px 0;
+      display: flex; justify-content: center; gap: 15px; z-index: 100;
+      backdrop-filter: blur(5px);
+    }
+    
+    /* 選單按鈕 (漢堡排圖示) */
+    #menu-btn {
+      position: absolute; left: 15px; top: 50%; transform: translateY(-50%);
+      background: none; border: none; color: white; font-size: 24px;
+      cursor: pointer; padding: 5px; z-index: 110;
+    }
+
+    /* 一般操作按鈕 */
+    .ctrl-btn {
+      padding: 8px 20px; border: none; border-radius: 20px;
+      font-weight: bold; color: white; cursor: pointer;
+      font-size: 16px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      transition: transform 0.1s;
+    }
+    .btn-add { background: #555; border: 1px solid #777; }
+    .btn-reset { background: #d32f2f; border: 1px solid #ff5555; }
+    .ctrl-btn:active { transform: scale(0.95); background: #777; }
+
+    /* 底部數據 HUD */
+    #hud {
+      position: fixed; bottom: 0; left: 0; width: 100%;
+      background: rgba(10,10,10,0.9); color: white;
+      padding: 15px 10px; box-sizing: border-box;
+      display: flex; justify-content: space-around;
+      font-family: 'Courier New', monospace; z-index: 20; 
+      border-top: 1px solid #444;
+    }
+    .hud-item { text-align: center; }
+    .hud-label { display: block; font-size: 12px; color: #aaa; margin-bottom: 2px; }
+    .hud-val { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; }
+    .unit { font-size: 0.9rem; color: #888; margin-left: 3px; }
+
+    /* 提示文字 */
+    #hint {
+      position: absolute; top: 70px; width: 100%; text-align: center;
+      color: rgba(255,255,255,0.4); font-size: 12px; pointer-events: none; z-index: 10;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- 遮罩層 -->
+  <div id="menu-overlay" onclick="toggleMenu()"></div>
+
+  <!-- 側邊選單 -->
+  <nav id="side-menu">
+    <div class="menu-header">
+      <span class="menu-title">物理模擬實驗室</span>
+      <span class="close-btn" onclick="toggleMenu()">×</span>
+    </div>
+    <div class="menu-items">
+      <!-- 這裡是選單連結 -->
+      <a href="index.html" class="menu-link active">1. 點電荷電場模擬</a>
+      <a href="parallel.html" class="menu-link">2. 平行板電場模擬</a>
+      <a href="#" class="menu-link" onclick="alert('建置中...')">3. 磁場模擬 (範例)</a>
+    </div>
+  </nav>
+
+  <!-- 頂部列 -->
+  <div id="top-bar">
+    <!-- 漢堡排選單按鈕 -->
+    <button id="menu-btn" onclick="toggleMenu()">☰</button>
+
+    <button class="ctrl-btn btn-add" onclick="addCharge(1)">+1C</button>
+    <button class="ctrl-btn btn-add" onclick="addCharge(-1)">-1C</button>
+    <button class="ctrl-btn btn-reset" onclick="resetSim()">重置</button>
+  </div>
+
+  <div id="hint">點擊球體輸入數值 (±10C) | 拖曳黃色準心觀測</div>
+
+  <!-- 底部數據 -->
+  <div id="hud">
+    <div class="hud-item">
+      <span class="hud-label">電場強度 E</span>
+      <span id="e-val" class="hud-val" style="color:#00ffff">0.00</span>
+      <span class="unit">N/C</span>
+    </div>
+    <div class="hud-item">
+      <span class="hud-label">電位 V</span>
+      <span id="v-val" class="hud-val">0.00</span>
+      <span class="unit">V</span>
+    </div>
+  </div>
+
+  <script>
+    // --- 選單控制 JavaScript ---
+    function toggleMenu() {
+      const menu = document.getElementById('side-menu');
+      const overlay = document.getElementById('menu-overlay');
+      menu.classList.toggle('open');
+      overlay.classList.toggle('open');
+    }
+
+    // --- 以下為物理模擬程式碼 (保持不變) ---
+
+    const MAX_CHARGES_COUNT = 6;
+    const MAX_INPUT_VAL = 10;
+    const LINES_PER_COULOMB = 10; 
+    const MAX_LINES_PER_CHARGE = 60;
+    const MAX_STEPS = 500;
+    const STEP_SIZE = 6;
+    const K_CONST = 5000;
+
+    let charges = [];
+    let observer;
+    let draggedObj = null;
+    let clickStartTime = 0;
+    let eDisplay, vDisplay;
+
+    function setup() {
+      createCanvas(windowWidth, windowHeight);
+      eDisplay = select('#e-val');
+      vDisplay = select('#v-val');
+      initScene();
+    }
+
+    function initScene() {
+      charges = [];
+      charges.push(new Charge(width * 0.3, height / 2, 1));
+      charges.push(new Charge(width * 0.7, height / 2, -1));
+      observer = new Observer(width/2, height/2 - 120);
+    }
+
+    function draw() {
+      background(10); 
+      drawFieldLines(); 
+      for (let c of charges) c.display();
+      observer.update();
+      observer.display();
+    }
+
+    function drawFieldLines() {
+      noFill(); strokeWeight(1.5);
+      let positiveCharges = charges.filter(c => c.q > 0);
+      for (let pCharge of positiveCharges) {
+        let numLines = Math.floor(Math.abs(pCharge.q) * LINES_PER_COULOMB);
+        numLines = constrain(numLines, 0, MAX_LINES_PER_CHARGE);
+        for (let i = 0; i < numLines; i++) {
+          let angle = (TWO_PI / numLines) * i;
+          let startR = pCharge.r + 2; 
+          let currX = pCharge.x + startR * cos(angle);
+          let currY = pCharge.y + startR * sin(angle);
+          stroke(255, 255, 255, 80); 
+          beginShape(); vertex(currX, currY);
+          for (let step = 0; step < MAX_STEPS; step++) {
+            let res = calculateField(currX, currY);
+            if (res.E_mag < 0.05 || currX < -50 || currX > width+50 || currY < -50 || currY > height+50) break;
+            let dx = (res.Ex / res.E_mag) * STEP_SIZE;
+            let dy = (res.Ey / res.E_mag) * STEP_SIZE;
+            currX += dx; currY += dy;
+            vertex(currX, currY);
+            let hit = false;
+            for (let nCharge of charges) {
+              if (nCharge.q < 0 && dist(currX, currY, nCharge.x, nCharge.y) < nCharge.r) { hit = true; break; }
+            }
+            if (hit) break;
+          }
+          endShape();
+        }
+      }
+    }
+
+    function calculateField(x, y) {
+      let Ex = 0, Ey = 0, V = 0;
+      for (let c of charges) {
+        let dx = x - c.x, dy = y - c.y;
+        let dSq = dx*dx + dy*dy, d = sqrt(dSq);
+        if (d < 1) d = 1;
+        let E = (K_CONST * c.q) / dSq;
+        Ex += E * (dx / d); Ey += E * (dy / d);
+        V += (K_CONST * c.q) / d / 10;
+      }
+      return { Ex, Ey, E_mag: sqrt(Ex*Ex + Ey*Ey), V };
+    }
+
+    class Charge {
+      constructor(x, y, q) { this.x = x; this.y = y; this.q = q; this.updateSize(); }
+      updateSize() { 
+        let sizeMag = constrain(Math.abs(this.q), 0, MAX_INPUT_VAL);
+        this.r = map(sizeMag, 0, MAX_INPUT_VAL, 25, 55); 
+      }
+      display() {
+        noStroke();
+        if (this.q > 0) fill(255, 60, 60); else if (this.q < 0) fill(60, 100, 255); else fill(150);
+        ellipse(this.x, this.y, this.r * 2);
+        fill(255); textAlign(CENTER, CENTER); textSize(15); textStyle(BOLD);
+        text(this.q + "C", this.x, this.y);
+      }
+    }
+
+    class Observer {
+      constructor(x, y) { this.x = x; this.y = y; }
+      update() {
+        let res = calculateField(this.x, this.y);
+        this.Ex = res.Ex; this.Ey = res.Ey;
+        eDisplay.html(res.E_mag.toFixed(2));
+        vDisplay.html(res.V.toFixed(2));
+      }
+      display() {
+        stroke('#ffe600'); strokeWeight(2); noFill();
+        ellipse(this.x, this.y, 24);
+        line(this.x-16, this.y, this.x+16, this.y);
+        line(this.x, this.y-16, this.x, this.y+16);
+        let len = mag(this.Ex, this.Ey);
+        if (len > 0.01) {
+          push(); translate(this.x, this.y); rotate(atan2(this.Ey, this.Ex));
+          let displayLen = constrain(len * 80, 20, 120); 
+          stroke('#00FFFF'); strokeWeight(4); line(0, 0, displayLen, 0);
+          noFill(); line(displayLen, 0, displayLen - 12, -8); line(displayLen, 0, displayLen - 12, 8);
+          pop();
+        }
+      }
+    }
+
+    // --- 互動與 UI 防止穿透 ---
+    function isTouchingUI(e) { 
+      // 點擊對象如果是按鈕、選單、選單文字，則視為 UI 操作
+      if (e.target.tagName === 'BUTTON' || e.target.closest('#side-menu')) return true;
+      return false; 
+    }
+
+    function touchStarted(e) { if (isTouchingUI(e)) return true; handleStart(); return false; }
+    function mousePressed(e) { if (isTouchingUI(e)) return true; handleStart(); }
+
+    function handleStart() {
+      clickStartTime = millis();
+      let mX = mouseX, mY = mouseY;
+      if (dist(mX, mY, observer.x, observer.y) < 40) { draggedObj = observer; return; }
+      for (let c of charges) {
+        if (dist(mX, mY, c.x, c.y) < c.r + 15) { draggedObj = c; return; }
+      }
+    }
+
+    function touchMoved() { handleMove(); return false; }
+    function mouseDragged() { handleMove(); }
+
+    function handleMove() {
+      if (draggedObj) {
+        draggedObj.x = constrain(mouseX, 30, width-30);
+        draggedObj.y = constrain(mouseY, 70, height-90);
+      }
+    }
+
+    function touchEnded() { handleEnd(); }
+    function mouseReleased() { handleEnd(); }
+
+    function handleEnd() {
+      if (millis() - clickStartTime < 250 && draggedObj instanceof Charge) {
+        editCharge(draggedObj);
+      }
+      draggedObj = null;
+    }
+
+    function editCharge(c) {
+      let hint = `請輸入電荷大小 (單位: C)\n範圍: -${MAX_INPUT_VAL} ~ +${MAX_INPUT_VAL}`;
+      let input = prompt(hint, c.q);
+      if (input !== null) {
+        let val = parseFloat(input);
+        if (isNaN(val)) { alert("請輸入數字"); return; }
+        if (Math.abs(val) > MAX_INPUT_VAL) { alert(`數值限制在 ±${MAX_INPUT_VAL}C 以內`); return; }
+        c.q = val; c.updateSize();
+      }
+    }
+
+    window.addCharge = function(q) {
+      if (charges.length >= MAX_CHARGES_COUNT) { alert("數量已達上限"); return; }
+      charges.push(new Charge(width/2 + random(-50,50), height/2 + random(-50,50), q));
+    };
+    window.resetSim = function() { initScene(); };
+    function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+  </script>
+</body>
+</html>
