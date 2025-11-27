@@ -3,72 +3,93 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>電場模擬 (效能保護版)</title>
+  <title>電場模擬 (高對比/單位修正版)</title>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
   <style>
     body { 
       margin: 0; overflow: hidden; background: #000; 
-      font-family: 'Segoe UI', sans-serif; 
-      touch-action: none; /* 禁止瀏覽器預設觸控行為 */
+      font-family: 'Segoe UI', Arial, sans-serif; 
+      touch-action: none; 
       user-select: none; -webkit-user-select: none;
     }
 
-    /* 頂部按鈕 */
+    /* 頂部按鈕列 */
     #top-bar {
       position: fixed; top: 0; left: 0; width: 100%;
       background: rgba(20,20,20,0.85); padding: 12px 0;
-      display: flex; justify-content: center; gap: 15px; z-index: 20;
+      display: flex; justify-content: center; gap: 15px; z-index: 100;
       backdrop-filter: blur(5px);
+      box-shadow: 0 2px 10px rgba(0,0,0,0.5);
     }
     button {
-      padding: 8px 16px; border: none; border-radius: 20px;
+      padding: 8px 18px; border: none; border-radius: 20px;
       font-weight: bold; color: white; cursor: pointer;
-      font-size: 14px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      font-size: 15px; box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+      transition: transform 0.1s;
     }
     .btn-add { background: #555; border: 1px solid #777; }
-    .btn-reset { background: #d32f2f; }
-    button:active { transform: scale(0.95); }
+    .btn-reset { background: #d32f2f; border: 1px solid #ff5555; }
+    button:active { transform: scale(0.95); background: #777; }
 
-    /* 底部 HUD */
+    /* 底部數據儀表板 */
     #hud {
       position: fixed; bottom: 0; left: 0; width: 100%;
-      background: rgba(0,0,0,0.85); color: white;
-      padding: 12px; box-sizing: border-box;
+      background: rgba(10,10,10,0.9); color: white;
+      padding: 15px 10px; box-sizing: border-box;
       display: flex; justify-content: space-around;
-      font-family: monospace; z-index: 20; border-top: 1px solid #333;
+      font-family: 'Courier New', monospace; z-index: 20; 
+      border-top: 1px solid #444;
     }
-    .hud-val { font-size: 1.3rem; font-weight: bold; margin-left: 5px; }
-    
-    /* 提示與說明 */
+    .hud-item { text-align: center; }
+    .hud-label { display: block; font-size: 12px; color: #aaa; margin-bottom: 2px; }
+    .hud-val { font-size: 1.2rem; font-weight: bold; letter-spacing: 1px; }
+    .unit { font-size: 0.9rem; color: #888; margin-left: 3px; }
+
+    /* 提示文字 */
     #hint {
-      position: absolute; top: 60px; width: 100%; text-align: center;
-      color: rgba(255,255,255,0.5); font-size: 13px; pointer-events: none;
+      position: absolute; top: 70px; width: 100%; text-align: center;
+      color: rgba(255,255,255,0.4); font-size: 12px; pointer-events: none;
+      z-index: 10;
     }
   </style>
 </head>
 <body>
 
+  <!-- 控制按鈕 -->
   <div id="top-bar">
-    <button class="btn-add" onclick="addCharge(1)">+1C</button>
-    <button class="btn-add" onclick="addCharge(-1)">-1C</button>
-    <button class="btn-reset" onclick="resetSim()">重置</button>
+    <!-- 這裡的 onclick 改為呼叫全域函式，並傳入數值 10 (代表原本的 1) -->
+    <button class="btn-add" id="btn-add-pos" onclick="addCharge(10)">+10</button>
+    <button class="btn-add" id="btn-add-neg" onclick="addCharge(-10)">-10</button>
+    <button class="btn-reset" id="btn-reset" onclick="resetSim()">重置</button>
   </div>
 
-  <div id="hint">點擊圓球修改數值 (上限 ±5)<br>拖動黃色準心觀測場強</div>
+  <div id="hint">點擊球體輸入數值 (±50) | 拖曳黃色準心觀測</div>
 
+  <!-- 數據顯示 -->
   <div id="hud">
-    <div>E:<span id="e-val" class="hud-val" style="color:#ffe600">0.00</span></div>
-    <div>V:<span id="v-val" class="hud-val">0.00</span></div>
+    <div class="hud-item">
+      <span class="hud-label">電場強度 Electric Field</span>
+      <span id="e-val" class="hud-val" style="color:#00ffff">0.00</span>
+      <span class="unit">N/C</span>
+    </div>
+    <div class="hud-item">
+      <span class="hud-label">電位 Potential</span>
+      <span id="v-val" class="hud-val">0.00</span>
+      <span class="unit">V</span>
+    </div>
   </div>
 
   <script>
-    // --- 效能與限制參數 ---
-    const MAX_CHARGES_COUNT = 6;  // 最多允許 6 個電荷
-    const MAX_CHARGE_VAL = 5;     // 單一電荷最大數值 (±5)
-    const LINES_PER_COULOMB = 10; // 線條密度 (每1單位電荷產生幾條線)
-    const MAX_STEPS = 500;        // 線條繪製最大步數 (避免跑太遠)
-    const STEP_SIZE = 6;          // 步長
-    const K_CONST = 5000;         // 模擬常數
+    // --- 參數設定 ---
+    const MAX_CHARGES_COUNT = 6;  // 數量上限
+    const MAX_DISPLAY_VAL = 50;   // 使用者輸入的最大數值 (代表 5.0 庫倫)
+    const INPUT_SCALE = 0.1;      // 縮放比例：輸入 1 代表 0.1 庫倫
+    
+    // 繪圖參數
+    const LINES_PER_REAL_COULOMB = 100; // 內部 1 庫倫 (即輸入10) 產生幾條線 -> 輸入10產生10條
+    const MAX_STEPS = 600;
+    const STEP_SIZE = 5;
+    const K_CONST = 5000;         // 物理常數
 
     let charges = [];
     let observer;
@@ -79,73 +100,83 @@
     let eDisplay, vDisplay;
 
     function setup() {
+      // 建立畫布
       createCanvas(windowWidth, windowHeight);
+      
       eDisplay = select('#e-val');
       vDisplay = select('#v-val');
       
-      // 預設場景
-      charges.push(new Charge(width * 0.35, height / 2, 1));
-      charges.push(new Charge(width * 0.65, height / 2, -1));
-      observer = new Observer(width/2, height/2 - 100);
+      initScene();
+    }
+
+    // 初始化場景 (重置時也呼叫這個)
+    function initScene() {
+      charges = [];
+      // 預設一正一負 (輸入值 10 代表內部值 1.0)
+      charges.push(new Charge(width * 0.3, height / 2, 10));
+      charges.push(new Charge(width * 0.7, height / 2, -10));
+      observer = new Observer(width/2, height/2 - 120);
     }
 
     function draw() {
-      background(15);
+      background(10); // 深黑背景
 
-      // 1. 繪製連續電力線
-      drawFieldLines();
+      drawFieldLines(); // 畫線
 
-      // 2. 繪製電荷
       for (let c of charges) {
         c.display();
       }
 
-      // 3. 繪製並更新觀測點
       observer.update();
       observer.display();
     }
 
-    // --- 核心演算法：連續電力線 ---
+    // --- 連續電力線繪製 ---
     function drawFieldLines() {
       noFill();
       strokeWeight(1.5);
       
-      // 找出所有正電荷作為發射源
       let positiveCharges = charges.filter(c => c.q > 0);
 
       for (let pCharge of positiveCharges) {
-        // 限制最大線條數，防止單一電荷過大時雖然數值被擋，但顯示上仍跑太多
-        let displayQ = constrain(Math.abs(pCharge.q), 0, MAX_CHARGE_VAL);
-        let numLines = Math.floor(displayQ * LINES_PER_COULOMB);
+        // 真實電荷量 (用於物理計算) = 顯示值 * 0.1
+        let realQ = pCharge.q * INPUT_SCALE;
         
+        // 線條數量 = 真實電荷量 * 密度
+        // 例如輸入 10 -> realQ=1 -> 10條線
+        // 例如輸入 1  -> realQ=0.1 -> 1條線
+        let numLines = Math.floor(Math.abs(realQ) * LINES_PER_REAL_COULOMB);
+        
+        // 限制線條上限，避免輸入 50 時手機卡死
+        numLines = constrain(numLines, 0, 60);
+
         for (let i = 0; i < numLines; i++) {
           let angle = (TWO_PI / numLines) * i;
           let startR = pCharge.r + 2; 
           let currX = pCharge.x + startR * cos(angle);
           let currY = pCharge.y + startR * sin(angle);
 
-          stroke(255, 255, 255, 90); // 線條顏色與透明度
+          stroke(255, 255, 255, 80); // 淡淡的白線
           beginShape();
           vertex(currX, currY);
 
           for (let step = 0; step < MAX_STEPS; step++) {
             let res = calculateField(currX, currY);
             
-            // 終止條件：場強過弱、出界
+            // 終止：場太弱或出界
             if (res.E_mag < 0.05 || 
                 currX < -50 || currX > width+50 || 
                 currY < -50 || currY > height+50) {
               break;
             }
 
-            // 推進
             let dx = (res.Ex / res.E_mag) * STEP_SIZE;
             let dy = (res.Ey / res.E_mag) * STEP_SIZE;
             currX += dx;
             currY += dy;
             vertex(currX, currY);
 
-            // 終止條件：撞入負電荷
+            // 終止：撞到負電荷
             let hit = false;
             for (let nCharge of charges) {
               if (nCharge.q < 0) {
@@ -165,16 +196,18 @@
     function calculateField(x, y) {
       let Ex = 0, Ey = 0, V = 0;
       for (let c of charges) {
+        let realQ = c.q * INPUT_SCALE; // 轉換為真實電荷
+        
         let dx = x - c.x;
         let dy = y - c.y;
         let dSq = dx*dx + dy*dy;
         let d = sqrt(dSq);
         if (d < 1) d = 1;
 
-        let E = (K_CONST * c.q) / dSq;
+        let E = (K_CONST * realQ) / dSq;
         Ex += E * (dx / d);
         Ey += E * (dy / d);
-        V += (K_CONST * c.q) / d / 10;
+        V += (K_CONST * realQ) / d / 10;
       }
       return { Ex, Ey, E_mag: sqrt(Ex*Ex + Ey*Ey), V };
     }
@@ -186,19 +219,23 @@
         this.updateSize();
       }
       updateSize() {
-        // 限制顯示大小
-        let sizeMag = constrain(Math.abs(this.q), 0, MAX_CHARGE_VAL);
-        this.r = 25 + sizeMag * 5; 
+        // 大小根據輸入值 (0~50) 變化
+        let sizeMag = constrain(Math.abs(this.q), 0, MAX_DISPLAY_VAL);
+        // 映射：輸入1->半徑20, 輸入50->半徑45
+        this.r = map(sizeMag, 0, MAX_DISPLAY_VAL, 20, 45);
       }
       display() {
         noStroke();
-        if (this.q > 0) fill(255, 60, 60);
-        else if (this.q < 0) fill(60, 100, 255);
+        // 根據正負顯示顏色
+        if (this.q > 0) fill(255, 60, 60);       // 紅
+        else if (this.q < 0) fill(60, 100, 255); // 藍
         else fill(150);
+        
         ellipse(this.x, this.y, this.r * 2);
         
-        fill(255); textAlign(CENTER, CENTER); textSize(15);
-        text(this.q + "C", this.x, this.y);
+        fill(255); textAlign(CENTER, CENTER); 
+        textSize(14); textStyle(BOLD);
+        text(this.q, this.x, this.y);
       }
     }
 
@@ -207,38 +244,71 @@
       update() {
         let res = calculateField(this.x, this.y);
         this.Ex = res.Ex; this.Ey = res.Ey;
+        // 數值顯示優化
         eDisplay.html(res.E_mag.toFixed(2));
         vDisplay.html(res.V.toFixed(2));
       }
       display() {
+        // 1. 準心 (黃色)
         stroke('#ffe600'); strokeWeight(2); noFill();
-        ellipse(this.x, this.y, 22);
-        line(this.x-15, this.y, this.x+15, this.y);
-        line(this.x, this.y-15, this.x, this.y+15);
+        ellipse(this.x, this.y, 24);
+        line(this.x-16, this.y, this.x+16, this.y);
+        line(this.x, this.y-16, this.x, this.y+16);
 
+        // 2. 向量箭頭 (螢光青色 - 高對比)
         let len = mag(this.Ex, this.Ey);
         if (len > 0.1) {
-          push(); translate(this.x, this.y); rotate(atan2(this.Ey, this.Ex));
-          let arrowLen = constrain(len*2, 0, 70);
-          stroke('rgba(255,230,0,0.8)');
-          line(0,0, arrowLen, 0);
-          noFill(); line(arrowLen, 0, arrowLen-6, -6); line(arrowLen, 0, arrowLen-6, 6);
+          push();
+          translate(this.x, this.y);
+          rotate(atan2(this.Ey, this.Ex));
+          
+          let arrowLen = constrain(len * 2.5, 0, 100); // 稍微放大長度
+          
+          stroke('#00FFFF'); // 青色 (Cyan)
+          strokeWeight(4);   // 加粗線條
+          
+          // 箭身
+          line(0, 0, arrowLen, 0);
+          
+          // 箭頭 (加大)
+          noFill();
+          line(arrowLen, 0, arrowLen - 10, -8);
+          line(arrowLen, 0, arrowLen - 10, 8);
           pop();
         }
       }
     }
 
-    // --- 互動與限制邏輯 ---
+    // --- 互動邏輯 ---
+    // 修復按鈕點擊無效：檢查是否點擊到 UI 元素
+    function isTouchingUI(e) {
+      if (e.target.tagName === 'BUTTON') return true;
+      return false;
+    }
 
-    function touchStarted() { handleStart(); return false; }
-    function mousePressed() { handleStart(); }
+    function touchStarted(e) { 
+      if (isTouchingUI(e)) return true; // 允許按鈕點擊
+      handleStart(); 
+      return false; // 禁止畫布預設捲動
+    }
+    function mousePressed(e) { 
+      if (isTouchingUI(e)) return true;
+      handleStart(); 
+    }
 
     function handleStart() {
       clickStartTime = millis();
       let mX = mouseX, mY = mouseY;
-      if (dist(mX, mY, observer.x, observer.y) < 35) { draggedObj = observer; return; }
+      
+      // 判斷是否點到觀測點
+      if (dist(mX, mY, observer.x, observer.y) < 40) { 
+        draggedObj = observer; return; 
+      }
+      // 判斷是否點到電荷
       for (let c of charges) {
-        if (dist(mX, mY, c.x, c.y) < c.r + 10) { draggedObj = c; return; }
+        if (dist(mX, mY, c.x, c.y) < c.r + 15) { 
+          draggedObj = c; return; 
+        }
       }
     }
 
@@ -248,7 +318,8 @@
     function handleMove() {
       if (draggedObj) {
         draggedObj.x = constrain(mouseX, 30, width-30);
-        draggedObj.y = constrain(mouseY, 60, height-80);
+        // 避開上下介面區域
+        draggedObj.y = constrain(mouseY, 70, height-90);
       }
     }
 
@@ -256,50 +327,47 @@
     function mouseReleased() { handleEnd(); }
 
     function handleEnd() {
-      // 判定為點擊 (短按)
+      // 判斷短按 (Click)
       if (millis() - clickStartTime < 250 && draggedObj instanceof Charge) {
         editCharge(draggedObj);
       }
       draggedObj = null;
     }
 
-    // [重點] 驗證輸入數值
+    // 輸入數值邏輯
     function editCharge(c) {
-      let hint = `請輸入電荷量\n範圍限制：-${MAX_CHARGE_VAL} 到 ${MAX_CHARGE_VAL}`;
+      let hint = `請輸入電荷強度\n範圍: -${MAX_DISPLAY_VAL} ~ +${MAX_DISPLAY_VAL}\n(目前數值: ${c.q})`;
       let input = prompt(hint, c.q);
       
       if (input !== null) {
         let val = parseFloat(input);
-        
-        // 檢查 1: 是否為數字
         if (isNaN(val)) {
-          alert("格式錯誤，請輸入數字！");
-          return;
+          alert("請輸入有效的數字！"); return;
         }
-
-        // 檢查 2: 範圍限制
-        if (Math.abs(val) > MAX_CHARGE_VAL) {
-          alert(`數值太大囉！為了手機跑得順，最大只能設定為 ±${MAX_CHARGE_VAL}。`);
-          return;
+        if (Math.abs(val) > MAX_DISPLAY_VAL) {
+          alert(`數值太大！最大請設定為 ±${MAX_DISPLAY_VAL}`); return;
         }
-
-        // 通過驗證
         c.q = val;
         c.updateSize();
       }
     }
 
-    // [重點] 限制新增數量
-    function addCharge(q) {
+    // --- 全域按鈕功能 ---
+    window.addCharge = function(q) {
       if (charges.length >= MAX_CHARGES_COUNT) {
-        alert(`畫面太擠了！為了效能，最多只能放置 ${MAX_CHARGES_COUNT} 個電荷。`);
+        alert("電荷數量已達上限！請先刪除或重置。");
         return;
       }
-      // 在畫面中間隨機位置生成，避免重疊
-      charges.push(new Charge(width/2 + random(-40,40), height/2 + random(-40,40), q));
-    }
+      // 隨機錯開位置
+      let rx = width/2 + random(-50, 50);
+      let ry = height/2 + random(-50, 50);
+      charges.push(new Charge(rx, ry, q));
+    };
 
-    function resetSim() { charges = []; setup(); }
+    window.resetSim = function() {
+      initScene(); // 重新呼叫初始化
+    };
+
     function windowResized() { resizeCanvas(windowWidth, windowHeight); }
   </script>
 </body>
